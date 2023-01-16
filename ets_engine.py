@@ -2,6 +2,7 @@ import os, sys
 import numpy as np
 import pandas as pd 
 import matplotlib.pyplot as plt
+from sklearn.linear_model import Lasso
 from sklearn.metrics import explained_variance_score, mean_absolute_error, mean_squared_error, r2_score 
 
 from statsmodels.tsa.arima.model import ARIMA
@@ -70,39 +71,31 @@ def exp_smoothing_bayesian(train, test, selected_hp_values):
     output['forecast'] = forecast[1:]
     return output
 
-def plot_predictions(y_true, y_pred, time_series_name, value_name, param_count, plot_size=(10, 7)):
-    # dictionary for currying
-    validation_output = {} 
+def lasso_linear(params, *data):
+    X_train, y_train = data
+
+# params: alpha, tol
+    params = {
+              'alpha': params['alpha'], 
+             'tol': params['tol']
+             }
+    # params = {'alpha': 0.3, 'tol': 0.001}
+    linear_model = Lasso(**params)
+    linear_model.fit(X_train, y_train)
+
+    return linear_model
+
+
+def calculate_errors_lasso(y_true, y_pred):
+    # create a dictionary to store all of the metrics
+    error_scores = {}
+    # Here is populated dictionary with various metrics
+    mse = mean_squared_error(y_true, y_pred)
+    error_scores['mae'] = mean_absolute_error(y_true, y_pred)
+    error_scores['mape'] = mape(y_true, y_pred)
+    error_scores['mse'] = mse
+    error_scores['rmse'] = sqrt(mse)
+    error_scores['explained_var'] = explained_variance_score(y_true, y_pred)
+    error_scores['r2'] = r2_score(y_true, y_pred)
     
-    # full error metrics suite as shown in listing 6.6
-    error_values = calculate_errors(y_true, y_pred, param_count)
-    
-    # store all of the raw values of the errors
-    validation_output['errors'] = error_values
-    
-    # create a string to populate a bounding box with on the graph
-    text_str = '\n'.join((
-        'mae = {:.3f}'.format(error_values['mae']),
-        'mape = {:.3f}'.format(error_values['mape']),
-        'mse = {:.3f}'.format(error_values['mse']),
-        'rmse = {:.3f}'.format(error_values['rmse']),
-        'aic = {:.3f}'.format(error_values['aic']),
-        'bic = {:.3f}'.format(error_values['bic']),
-        'explained var = {:.3f}'.format(error_values['explained_var']),
-        'r squared = {:.3f}'.format(error_values['r2']),
-    )) 
-    with plt.style.context(style='seaborn'):
-        fig, axes = plt.subplots(1, 1, figsize=plot_size)
-        axes.plot(y_true, 'b-', label='Test data for {}'.format(time_series_name))
-        axes.plot(y_pred, 'r-', label='Forecast data for {}'.format(time_series_name))
-        axes.legend(loc='upper left')
-        axes.set_title('Raw and Predicted data trend for {}'.format(time_series_name))
-        axes.set_ylabel(value_name)
-        axes.set_xlabel(y_true.index.name)
-        
-        # create an overlay bounding box so that all of our metrics are displayed on the plot
-        props = dict(boxstyle='round', facecolor='oldlace', alpha=0.5)
-        axes.text(0.05, 0.9, text_str, transform=axes.transAxes, fontsize=12, verticalalignment='top', bbox=props)
-        plt.tight_layout()
-        plt.show()
-    return validation_output
+    return error_scores
