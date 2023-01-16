@@ -3,7 +3,8 @@ import numpy as np
 import pandas as pd 
 import streamlit as st
 import pickle
-from ets_engine import exp_smoothing_bayesian, calculate_errors, extract_param_count_hwes, plot_predictions
+from ets_engine import exp_smoothing_bayesian, calculate_errors, extract_param_count_hwes
+from ets_engine import lasso_linear, calculate_errors_lasso
 
 st.set_page_config(
     page_title="Forecast",
@@ -14,8 +15,14 @@ st.set_page_config(
 st.title('Weekly Internet Sales Forecasting')
 st.text_input('Input Date', '2019-01-01')
 
-# with open(r"holt_winter_model.pickle", "rb") as input_file:
-#    model = pickle.load(input_file)
+tab_titles = [
+            "Tabular Viewing",
+            "Tabular Viewing after Feature Engineering",
+            "Forecasting with Lasso Regression", 
+            "Forecasting with Exponential Smoothing"
+        ]
+    
+tabs = st.tabs(tab_titles)
 
 
 def load_data():
@@ -63,9 +70,11 @@ def splitting_data(data, split_date):
 def main():
     np.random.seed(40)
     date = float(sys.argv[1]) if len(sys.argv) > 1 else "2019-01-01"
-    data = load_data()
+    data_preprocessed = load_data()
+    data_preprocessed.round(4)
+    data_rounded = data_preprocessed
 
-    X_train, y_train, X_test, y_test = splitting_data(data, date)
+    X_train, y_train, X_test, y_test = splitting_data(data_preprocessed, date)
     best_result = {
         'model': {
             'trend': 'mul',
@@ -81,28 +90,57 @@ def main():
             'remove_bias': False
         }
     }
+    params = {
+              'alpha': 0.6, 
+             'tol': 0.01
+             }
+
     param_count = extract_param_count_hwes(best_result)
     model_results = exp_smoothing_bayesian(y_train, y_test, best_result)
     error_scores = calculate_errors(y_test, model_results['forecast'], param_count)
-    
-    st.write('The model performance of Forecasting with Exponential Smoothing.')
 
-    st.write("mae", round(error_scores['mae'], 4))
-    st.write("mape", round(error_scores['mape'], 4))
-    st.write("mse", round(error_scores['mse'], 4))
-    st.write("rmse", round(error_scores['rmse'], 4))
-    st.write("aic", round(error_scores['aic'], 4))
-    st.write("bic", round(error_scores['bic'], 4))
-    st.write("explained_var", round(error_scores['explained_var'], 4))
-    st.write("r2", round(error_scores['r2'], 4))
+    linear_model = lasso_linear(params, X_train, y_train)
+    y_pred_lasso = linear_model.predict(X_test)
+    error_scores_lasso = calculate_errors_lasso(y_test, y_pred_lasso)
 
-    X_test['Prediction'] = model_results['model'].forecast(len(y_test))
+    with tabs[1]:
+        st.subheader("Presenting Data after Feature Engineering")
 
-    # fig1 = plot_predictions(y_test, X_test['Prediction'], "Forecast Model", "Index Sales per Week", param_count)
-    
-    d = {'ground_truth': y_test, 'pred': X_test['Prediction']}
-    chart_data = pd.DataFrame(data=d)
-    st.line_chart(chart_data)
+        st.dataframe(data=data_rounded, use_container_width=False)
+
+    with tabs[2]:
+        st.subheader("Model performance of Forecasting with Lasso Regression (Scikit-Learn).")
+
+        st.write("mae", round(error_scores_lasso['mae'], 4))
+        st.write("mape", round(error_scores_lasso['mape'], 4))
+        st.write("mse", round(error_scores_lasso['mse'], 4))
+        st.write("rmse", round(error_scores_lasso['rmse'], 4))
+        st.write("explained_var", round(error_scores_lasso['explained_var'], 4))
+        st.write("r2", round(error_scores_lasso['r2'], 4))
+
+        d = {'ground_truth': y_test, 'pred': y_pred_lasso}
+        chart_data_lasso = pd.DataFrame(data=d)
+        st.line_chart(chart_data_lasso)
+
+    with tabs[3]:
+        st.write('Model performance of Forecasting with Exponential Smoothing (StatsModels).')
+
+        st.write("mae", round(error_scores['mae'], 4))
+        st.write("mape", round(error_scores['mape'], 4))
+        st.write("mse", round(error_scores['mse'], 4))
+        st.write("rmse", round(error_scores['rmse'], 4))
+        st.write("aic", round(error_scores['aic'], 4))
+        st.write("bic", round(error_scores['bic'], 4))
+        st.write("explained_var", round(error_scores['explained_var'], 4))
+        st.write("r2", round(error_scores['r2'], 4))
+
+        X_test['Prediction'] = model_results['model'].forecast(len(y_test))
+
+        # fig1 = plot_predictions(y_test, X_test['Prediction'], "Forecast Model", "Index Sales per Week", param_count)
+        
+        d = {'ground_truth': y_test, 'pred': X_test['Prediction']}
+        chart_data = pd.DataFrame(data=d)
+        st.line_chart(chart_data)
 
 if __name__ == '__main__':
     main()
