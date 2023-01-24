@@ -19,7 +19,6 @@ st.title('Weekly Internet Sales Forecasting')
 
 tab_titles = [
             "Tabular Viewing after Feature Engineering",
-            "AutoCorrelation",
             "Forecasting with Lasso Regression", 
             "Forecasting with Exponential Smoothing",
             "Forecasting with ARIMA"
@@ -86,53 +85,7 @@ def main():
     data_preprocessed.round(4)
     data_rounded = data_preprocessed
 
-    X_train, y_train, X_test, y_test = splitting_data(data_preprocessed, date)
-    best_ets_result = {
-        'model': {
-            'trend': 'mul',
-            'seasonal': 'add',
-            'damped_trend': False
-        },
-        'fit': {
-            'smoothing_level': 0.019176,
-            'smoothing_trend': 0.03367,
-            'smoothing_seasonal': 0.98565,
-            'damping_trend': 0.061314,
-            'method': "trust-constr",
-            'remove_bias': False
-        }
-    }
-    params = {
-              'alpha': 0.12692, 
-             'tol': 0.000277
-             }
-
-    best_arima_result = {
-        'model': {
-            'trend': "n", 
-            'enforce_stationarity': False,
-            'concentrate_scale': False
-        },
-        'fit': {
-            'cov_type': "robust",
-        }
-    }
-
-    ### Exponential Smoothing Forecasting
-    param_ets_count = extract_param_count_hwes(best_ets_result)
-    model_ets_results = exp_smoothing_bayesian(y_train, y_test, best_ets_result)
-    error_ets_scores = calculate_errors(y_test, model_ets_results['forecast'], param_ets_count)
-
-    ### ARIMA Forecasting
-    endog=y_train
-    param_count_arima = extract_param_count_hwes(best_arima_result)
-    model_arima_results = arima_bayesian(endog, y_train, y_test, best_arima_result)
-    error_arima_scores = calculate_errors(y_test, model_arima_results['forecast'], param_count_arima)
-
-    ### Lasso Linear Forecasting
-    linear_model = lasso_linear(params, X_train, y_train)
-    y_pred_lasso = linear_model.predict(X_test)
-    error_scores_lasso = calculate_errors_lasso(y_test, y_pred_lasso)
+    X_train, y_train, X_test, y_test = splitting_data(data_preprocessed, date)  
 
     with tabs[0]:
         st.subheader("Presenting Data after Feature Engineering")
@@ -140,12 +93,27 @@ def main():
         st.dataframe(data=data_rounded, use_container_width=False)
 
     with tabs[1]:
-        st.subheader("Presenting Data AutoCorrelation")
-
-        st.pyplot(fig=autocorr(y_train, 12), clear_figure=None)
-
-    with tabs[2]:
         st.subheader("Model performance of Forecasting with Lasso Regression (Scikit-Learn).")
+
+        with st.expander("Lasso Input Parameters"):
+            alpha = st.number_input("alpha", 0.001, 0.99, step=0.005)
+            tol = st.number_input("tolerance", 0.001, 0.99, step=0.005)
+        
+        # params = {
+        #       'alpha': 0.12692, 
+        #      'tol': 0.000277
+        #      }
+
+        params = {
+              'alpha': alpha, 
+             'tol': tol
+             }
+
+
+        ### Lasso Linear Forecasting
+        linear_model = lasso_linear(params, X_train, y_train)
+        y_pred_lasso = linear_model.predict(X_test)
+        error_scores_lasso = calculate_errors_lasso(y_test, y_pred_lasso)
 
         st.write("mae", round(error_scores_lasso['mae'], 4))
         st.write("mape", round(error_scores_lasso['mape'], 4))
@@ -158,9 +126,49 @@ def main():
         chart_data_lasso = pd.DataFrame(data=d)
         st.line_chart(chart_data_lasso)
 
-    with tabs[3]:
+    with tabs[2]:
         st.write('Model performance of Forecasting with Exponential Smoothing (StatsModels).')
 
+        with st.expander("Exponential Smoothing Input Parameters"):
+            col1, col2 = st.columns(2)
+
+            with col1:
+                col1.write("model parameter")
+                trend = st.selectbox("trend", ["add", "mul"])
+                seasonal = st.selectbox("seasonal", ["mul", "add"])
+                damped_trend = st.selectbox("damped_trend", [True, False])
+                
+            with col2:
+                col2.write("fitting parameter")
+                smoothing_level = st.number_input("smoothing_level", 0.001, 0.99, step=0.005)
+                smoothing_trend = st.number_input("smoothing_trend", 0.001, 0.99, step=0.005)
+                smoothing_seasonal = st.number_input("smoothing_seasonal", 0.001, 0.99, step=0.005)
+                damping_trend = st.number_input("damping_trend", 0.001, 0.99, step=0.005)
+                method = st.selectbox("method", ["L-BFGS-B" , "TNC", "SLSQP","Powell", 
+                                    "trust-constr", "basinhopping", "least_squares" ])
+                remove_bias = st.selectbox("remove_bias", [True, False])
+
+        best_ets_result = {
+            'model': {
+                'trend': trend,
+                'seasonal': seasonal,
+                'damped_trend': damped_trend
+            },
+            'fit': {
+                'smoothing_level': smoothing_level,
+                'smoothing_trend': smoothing_trend,
+                'smoothing_seasonal': smoothing_seasonal,
+                'damping_trend': damping_trend,
+                'method': method,
+                'remove_bias': remove_bias
+            }
+        }
+        ### Exponential Smoothing Forecasting
+        param_ets_count = extract_param_count_hwes(best_ets_result)
+        model_ets_results = exp_smoothing_bayesian(y_train, y_test, best_ets_result)
+        error_ets_scores = calculate_errors(y_test, model_ets_results['forecast'], param_ets_count)
+
+        
         st.write("mae", round(error_ets_scores['mae'], 4))
         st.write("mape", round(error_ets_scores['mape'], 4))
         st.write("mse", round(error_ets_scores['mse'], 4))
@@ -178,8 +186,31 @@ def main():
         chart_data = pd.DataFrame(data=d)
         st.line_chart(chart_data)
 
-    with tabs[4]:
+    with tabs[3]:
         st.write('Model performance of Forecasting with ARIMA (StatsModels).')
+
+        with st.expander("ARIMA Input Parameters"):
+            trend_arima = st.selectbox("trend", ["n","c","t","ct"])
+            enforce_stationarity = st.selectbox("enforce_stationarity", [True, False])
+            concentrate_scale = st.selectbox("concentrate_scale", [True, False])
+            cov_type = st.selectbox("cov_type", ["oim","approx","robust","none"])
+
+        best_arima_result = {
+            'model': {
+                'trend': trend_arima, 
+                'enforce_stationarity': enforce_stationarity,
+                'concentrate_scale': concentrate_scale
+            },
+            'fit': {
+                'cov_type': cov_type,
+            }
+        }
+
+        ### ARIMA Forecasting
+        endog=y_train
+        param_count_arima = extract_param_count_hwes(best_arima_result)
+        model_arima_results = arima_bayesian(endog, y_train, y_test, best_arima_result)
+        error_arima_scores = calculate_errors(y_test, model_arima_results['forecast'], param_count_arima)
 
         st.write("mae", round(error_arima_scores['mae'], 4))
         st.write("mape", round(error_arima_scores['mape'], 4))
