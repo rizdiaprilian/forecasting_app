@@ -1,10 +1,13 @@
-import os, sys
+import sys
 import numpy as np
 import pandas as pd 
 import streamlit as st
-import pickle
+import matplotlib.pyplot as plt
 from ets_engine import exp_smoothing_bayesian, calculate_errors, extract_param_count_hwes
-from ets_engine import lasso_linear, calculate_errors_lasso
+from ets_engine import lasso_linear, calculate_errors_lasso, arima_bayesian
+from statsmodels.graphics.tsaplots import plot_acf, plot_pacf
+
+st.set_option('deprecation.showPyplotGlobalUse', False)
 
 st.set_page_config(
     page_title="Forecast",
@@ -13,13 +16,13 @@ st.set_page_config(
 )
 
 st.title('Weekly Internet Sales Forecasting')
-st.text_input('Input Date', '2019-01-01')
 
 tab_titles = [
-            "Tabular Viewing",
             "Tabular Viewing after Feature Engineering",
+            "AutoCorrelation",
             "Forecasting with Lasso Regression", 
-            "Forecasting with Exponential Smoothing"
+            "Forecasting with Exponential Smoothing",
+            "Forecasting with ARIMA"
         ]
     
 tabs = st.tabs(tab_titles)
@@ -66,6 +69,15 @@ def splitting_data(data, split_date):
 
     return X_train, y_train, X_test, y_test
 
+def autocorr(series, lags):
+    fig, axes = plt.subplots(2, 1, figsize=(8,12))
+    fig = plot_acf(series, lags=lags, ax=axes[0])
+    fig = plot_pacf(series, lags=lags, ax=axes[1])
+    axes[0].set_xlabel('lags')
+    axes[0].set_ylabel('correlation')
+    axes[1].set_xlabel('lags')
+    axes[1].set_ylabel('correlation')
+    plt.show()
 
 def main():
     np.random.seed(40)
@@ -75,7 +87,7 @@ def main():
     data_rounded = data_preprocessed
 
     X_train, y_train, X_test, y_test = splitting_data(data_preprocessed, date)
-    best_result = {
+    best_ets_result = {
         'model': {
             'trend': 'mul',
             'seasonal': 'add',
@@ -91,22 +103,46 @@ def main():
         }
     }
     params = {
-              'alpha': 0.6, 
-             'tol': 0.01
+              'alpha': 0.12692, 
+             'tol': 0.000277
              }
 
-    param_count = extract_param_count_hwes(best_result)
-    model_results = exp_smoothing_bayesian(y_train, y_test, best_result)
-    error_scores = calculate_errors(y_test, model_results['forecast'], param_count)
+    best_arima_result = {
+        'model': {
+            'trend': "n", 
+            'enforce_stationarity': False,
+            'concentrate_scale': False
+        },
+        'fit': {
+            'cov_type': "robust",
+        }
+    }
 
+    ### Exponential Smoothing Forecasting
+    param_ets_count = extract_param_count_hwes(best_ets_result)
+    model_ets_results = exp_smoothing_bayesian(y_train, y_test, best_ets_result)
+    error_ets_scores = calculate_errors(y_test, model_ets_results['forecast'], param_ets_count)
+
+    ### ARIMA Forecasting
+    endog=y_train
+    param_count_arima = extract_param_count_hwes(best_arima_result)
+    model_arima_results = arima_bayesian(endog, y_train, y_test, best_arima_result)
+    error_arima_scores = calculate_errors(y_test, model_arima_results['forecast'], param_count_arima)
+
+    ### Lasso Linear Forecasting
     linear_model = lasso_linear(params, X_train, y_train)
     y_pred_lasso = linear_model.predict(X_test)
     error_scores_lasso = calculate_errors_lasso(y_test, y_pred_lasso)
 
-    with tabs[1]:
+    with tabs[0]:
         st.subheader("Presenting Data after Feature Engineering")
 
         st.dataframe(data=data_rounded, use_container_width=False)
+
+    with tabs[1]:
+        st.subheader("Presenting Data AutoCorrelation")
+
+        st.pyplot(fig=autocorr(y_train, 12), clear_figure=None)
 
     with tabs[2]:
         st.subheader("Model performance of Forecasting with Lasso Regression (Scikit-Learn).")
@@ -125,20 +161,40 @@ def main():
     with tabs[3]:
         st.write('Model performance of Forecasting with Exponential Smoothing (StatsModels).')
 
-        st.write("mae", round(error_scores['mae'], 4))
-        st.write("mape", round(error_scores['mape'], 4))
-        st.write("mse", round(error_scores['mse'], 4))
-        st.write("rmse", round(error_scores['rmse'], 4))
-        st.write("aic", round(error_scores['aic'], 4))
-        st.write("bic", round(error_scores['bic'], 4))
-        st.write("explained_var", round(error_scores['explained_var'], 4))
-        st.write("r2", round(error_scores['r2'], 4))
+        st.write("mae", round(error_ets_scores['mae'], 4))
+        st.write("mape", round(error_ets_scores['mape'], 4))
+        st.write("mse", round(error_ets_scores['mse'], 4))
+        st.write("rmse", round(error_ets_scores['rmse'], 4))
+        st.write("aic", round(error_ets_scores['aic'], 4))
+        st.write("bic", round(error_ets_scores['bic'], 4))
+        st.write("explained_var", round(error_ets_scores['explained_var'], 4))
+        st.write("r2", round(error_ets_scores['r2'], 4))
 
-        X_test['Prediction'] = model_results['model'].forecast(len(y_test))
+        X_test['Prediction_ETS'] = model_ets_results['model'].forecast(len(y_test))
 
         # fig1 = plot_predictions(y_test, X_test['Prediction'], "Forecast Model", "Index Sales per Week", param_count)
         
-        d = {'ground_truth': y_test, 'pred': X_test['Prediction']}
+        d = {'ground_truth': y_test, 'pred': X_test['Prediction_ETS']}
+        chart_data = pd.DataFrame(data=d)
+        st.line_chart(chart_data)
+
+    with tabs[4]:
+        st.write('Model performance of Forecasting with ARIMA (StatsModels).')
+
+        st.write("mae", round(error_arima_scores['mae'], 4))
+        st.write("mape", round(error_arima_scores['mape'], 4))
+        st.write("mse", round(error_arima_scores['mse'], 4))
+        st.write("rmse", round(error_arima_scores['rmse'], 4))
+        st.write("aic", round(error_arima_scores['aic'], 4))
+        st.write("bic", round(error_arima_scores['bic'], 4))
+        st.write("explained_var", round(error_arima_scores['explained_var'], 4))
+        st.write("r2", round(error_arima_scores['r2'], 4))
+
+        X_test['Prediction_ARIMA'] = model_arima_results['model'].forecast(len(y_test))
+
+        # fig1 = plot_predictions(y_test, X_test['Prediction'], "Forecast Model", "Index Sales per Week", param_count)
+        
+        d = {'ground_truth': y_test, 'pred': X_test['Prediction_ARIMA']}
         chart_data = pd.DataFrame(data=d)
         st.line_chart(chart_data)
 
