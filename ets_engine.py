@@ -1,10 +1,6 @@
-import os, sys
 import numpy as np
-import pandas as pd 
-import matplotlib.pyplot as plt
 from sklearn.linear_model import Lasso
 from sklearn.metrics import explained_variance_score, mean_absolute_error, mean_squared_error, r2_score 
-
 from statsmodels.tsa.arima.model import ARIMA
 from statsmodels.tsa.holtwinters import ExponentialSmoothing
 from math import sqrt
@@ -68,6 +64,24 @@ def exp_smoothing_bayesian(train, test, selected_hp_values):
 
     forecast = exp_fit.predict(train.index[-1], test.index[-1])
     output['model'] = exp_fit
+    output['forecast'] = forecast[1:]
+    return output
+
+def arima_bayesian(endog, train, test, selected_hp_values):
+    output = {}
+    arima_model = ARIMA(endog=endog, 
+                               trend=selected_hp_values['model']['trend'],
+                                order=(2,0,0),
+                               enforce_stationarity=selected_hp_values['model']['enforce_stationarity'],
+                               concentrate_scale=selected_hp_values['model']['concentrate_scale']
+                                              )
+
+    arima_fit = arima_model.fit(
+                            cov_type=selected_hp_values['fit']['cov_type'],
+                         )
+
+    forecast = arima_fit.predict(train.index[-1], test.index[-1])
+    output['model'] = arima_fit
     output['forecast'] = forecast[1:]
     return output
 
